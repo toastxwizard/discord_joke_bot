@@ -1,4 +1,4 @@
-use serenity::{async_trait, futures::future::UnsafeFutureObj};
+use serenity::{async_trait};
 use serenity::client::{Client, Context, EventHandler};
 use serenity::model::channel::Message;
 use serenity::framework::standard::{
@@ -11,14 +11,11 @@ use serenity::framework::standard::{
 };
 
 use songbird::{SerenityInit};
-use songbird::Call;
-
-use std::{fs::create_dir, io::Write, path, process::{Command, Stdio}};
-use std::fs::remove_file;
 
 use std::env;
-use std::path::Path;
-use std::time;
+
+mod joke_database;
+mod joke;
 
 #[group]
 #[only_in(guilds)]
@@ -32,9 +29,8 @@ impl EventHandler for Handler {}
 
 #[tokio::main]
 async fn main() {
-    if !Path::new("jokes").exists() {
-        std::fs::create_dir("jokes").unwrap();
-    }
+
+    joke::Joke::init();
 
     let framework = StandardFramework::new()
         .configure(|c| c.prefix("}"))
@@ -60,44 +56,36 @@ async fn main() {
 async fn joke(ctx: &Context, msg: &Message) -> CommandResult {
     let guild = msg.guild(&ctx.cache).await.expect("No guild found");
     let guild_id = guild.id;
-    let file_name = format!("jokes/{}_{}", msg.timestamp, guild.name);
-    let file_name_final = format!("{}_joke.wav", file_name.clone());
-    let file_name_conversion = format!("{}.wav", file_name.clone());
+    let file_name = format!("{}_{}_{}", msg.timestamp.clone(), guild.id.to_string(), msg.author.id.to_string());
 
     let channel_id = guild
         .voice_states.get(&msg.author.id)
         .and_then(|voice_state| voice_state.channel_id).expect("User not in a channel");
     
     let manager = songbird::get(ctx).await.unwrap().clone();
-
     let (call, _) = manager.join(guild_id, channel_id).await;
+
+    let joke = joke::Joke::new("What do computers and air conditioners have in common? <break time=\"3s\"/> They are both useless when you open Windows.".to_string(), &file_name);
+
+    let joke_input = songbird::ffmpeg(joke.get_joke_file_path()).await.expect("Error getting joke file");
+    let handle = call.lock().await.play_source(joke_input);
     
-    let espeak_process = Command::new("espeak")
-        .arg("--stdin")
-        .arg("-w")
-        .arg(file_name_conversion.clone())
-        .stdin(Stdio::piped())
-        .spawn()
-        .expect("Error creating buffer file");
+    loop{
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let info = handle.get_info().await;
 
-    espeak_process.stdin.unwrap()
-        .write_all("Boss, you killed a child........................................... That's why you are the boss".as_bytes())
-        .expect("Error generating tts file");
+        match info {
+            Err(songbird::tracks::TrackError::Finished) => break,
+            Err(_) => (),
+            Ok(_) => ()
+        }
+    }
 
-    Command::new("ffmpeg")
-        .arg("-i")
-        .arg(file_name_conversion.clone())
-        .arg(file_name_final.clone())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .expect("Error converting to ffmpeg format");
+    joke.clean_up_files();
 
-    let joke = songbird::ffmpeg(file_name_final.clone()).await.expect("Could not load soundfile");
+    manager.remove(guild_id).await.expect("Cannot leave voice channel");
 
-    let _handle = call.lock().await.play_source(joke);
-
-	Ok(())
+    Ok(())
 }
 
 #[command]

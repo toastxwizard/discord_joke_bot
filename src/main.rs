@@ -65,7 +65,11 @@ async fn joke(ctx: &Context, msg: &Message) -> CommandResult {
     let manager = songbird::get(ctx).await.unwrap().clone();
     let (call, _) = manager.join(guild_id, channel_id).await;
 
-    let joke = joke::Joke::new("What do computers and air conditioners have in common? <break time=\"3s\"/> They are both useless when you open Windows.".to_string(), &file_name);
+    //let joke = joke::Joke::new("What do computers and air conditioners have in common? <break time=\"3s\"/> They are both useless when you open Windows.".to_string(), &file_name);
+
+    let jdb = joke_database::Joke_Database::new().expect("Could not connect to db");
+    let joke_string = jdb.get_random_joke().expect( "Could not find a joke");
+    let joke = joke::Joke::new(joke_string, &file_name);
 
     let joke_input = songbird::ffmpeg(joke.get_joke_file_path()).await.expect("Error getting joke file");
     let handle = call.lock().await.play_source(joke_input);

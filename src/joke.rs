@@ -1,9 +1,6 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::io::Write;
-use std::thread;
-use std::time;
-use std::sync::Arc;
 
 pub struct Joke {
     conversion_file: String,
